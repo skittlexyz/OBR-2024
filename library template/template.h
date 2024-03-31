@@ -1,5 +1,5 @@
-#ifndef template
-#define template
+#ifndef TEMPLATE_H
+#define TEMPLATE_H
 #include "Arduino.h"
 class template {
 public:
