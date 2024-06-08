@@ -47,22 +47,6 @@ uint8_t echoPins[3] = {49, 51, 53};
 uint8_t motorPins[6] = {8, 9, 10, 13, 11, 12};
 // TCS34725 Pins {sda, scl, ...}
 uint8_t colorPins[4] = {44, 45, 46, 47};
-// Line logic variables
-bool errorCombinations[9][5] = {
-  {1,0,0,0,0},  
-  {1,1,0,0,0},  
-  {0,1,0,0,0},  
-  {0,1,1,0,0},  
-  {0,0,1,0,0},  
-  {0,0,1,1,0},  
-  {0,0,0,1,0},  
-  {0,0,0,1,1},  
-  {0,0,0,0,1}  
-};
-int8_t errorLevels[9] = {-8,-4,-2,-1,0,1,2,4,8};
-uint8_t velocityStep = 15;
-int8_t lastError;
-
 /* Objects declaration*/
 // Color sensors (TCS34725)
 Adafruit_TCS34725softi2c leftColor = Adafruit_TCS34725softi2c(colorVelocity, colorGain, colorPins[0], colorPins[1]);
@@ -101,10 +85,8 @@ void sensorsDebug();
 void movementDebug();
 // Updates a variable increasing it by one, if it receives -1, the cycle goes back to 1
 void updateCycle(int number);
-// compareBooleanArray arrays
-bool compareBooleanArray(bool irReadings[], bool irCase[]);
-// Copy an array to another
-void copyBooleanArray(bool* src, bool* dst, int len);
+// Compares arrays
+bool compareIrCase(bool irReadings[], bool irCase[]);
 // Checks ir cases
 uint8_t checkIrCase();
 // motorMovement automations
@@ -130,7 +112,7 @@ void setup()
   // Waits for serial monitor to be available
   if (developerMode || controllerMode)
   {
-    Serial.begin(9600);
+    Serial.begin(115200);
     while (!Serial)
       ;
   }
@@ -142,61 +124,84 @@ void setup()
 
 void loop()
 {
+  int straightMoveDelay = 150;
+  int straightStopDelay = 40;
   stopAll();
-  bool * irReadings = getIrReadings();
-  bool currentErrorCombination[5] = {0};
-  int16_t currentLVelocity = 0;
-  int16_t currentRVelocity = 0;
-  int8_t currentIndex;
-  for (int8_t i = 0; i < 9; i++)
+  uint8_t currentCase = checkIrCase();
+  switch (currentCase)
   {
-    currentIndex = i;
-    if (compareBooleanArray(irReadings, errorCombinations[i])) {
-      if (developerMode) Serial.print("found case! ");
-      copyBooleanArray(errorCombinations[i], currentErrorCombination, 5);
-      for (uint8_t j = 0; j < 5; j++)
-      {
-        if (developerMode) Serial.print(errorCombinations[i][j]);
-        if (developerMode) Serial.print(" ");
-      }
-  
-      currentLVelocity = motorLVelocity + (errorLevels[i] * (velocityStep * 1.5));
-      currentRVelocity = motorRVelocity - (errorLevels[i] * velocityStep);  
-      if (currentLVelocity > 255) currentLVelocity = 255;
-      if (currentRVelocity > 255) currentRVelocity = 255; 
-      if (currentLVelocity < 0) currentLVelocity = 0;
-      if (currentRVelocity < 0) currentRVelocity = 0; 
-      if (developerMode) Serial.print("velocity L: ");
-      if (developerMode) Serial.print(currentLVelocity);
-      if (developerMode) Serial.print(" velocity R: ");
-      if (developerMode) Serial.print(currentRVelocity);
-      if (developerMode) Serial.println("");  
-      break;
-    }
+  // ☖ ☖ ☖ ☖ ☖
+  case 1:
+    if (developerMode) Serial.print("Case 1: ☖ ☖ ☖ ☖ ☖");
+    forwardAll();
+    break;
+  // ☖ ☖ ☗ ☖ ☖
+  case 2:
+    if (developerMode) Serial.print("Case 2: ☖ ☖ ☗ ☖ ☖");
+    forwardAll();
+    break;
+  // ☖ ☖ ☗ ☗ ☖
+  case 3:
+    if (developerMode) Serial.print("Case 3: ☖ ☖ ☗ ☗ ☖");
+    rightAdjust();
+    break;
+  // ☖ ☗ ☗ ☖ ☖
+  case 4:
+    if (developerMode) Serial.print("Case 4: ☖ ☗ ☗ ☖ ☖");
+    leftAdjust();
+    break;
+  // ☖ ☖ ☖ ☗ ☗
+  case 5:
+    if (developerMode) Serial.print("Case 5: ☖ ☖ ☖ ☗ ☗");
+    rightFastAdjust();
+    break;
+  // ☗ ☗ ☖ ☖ ☖
+  case 6:
+    if (developerMode) Serial.print("Case 6: ☗ ☗ ☖ ☖ ☖");
+    leftFastAdjust();
+    break;
+  // ☖ ☖ ☖ ☖ ☗
+  case 7:
+    if (developerMode) Serial.print("Case 7: ☖ ☖ ☖ ☖ ☗");
+    rightStraight();
+    delay(straightMoveDelay);
+    forwardAll();
+    delay(straightStopDelay);
+    break;
+  // ☗ ☖ ☖ ☖ ☖
+  case 8:
+    if (developerMode) Serial.print("Case 8: ☗ ☖ ☖ ☖ ☖");
+    leftStraight();
+    delay(straightMoveDelay);
+    forwardAll();
+    delay(straightStopDelay);
+    break;
+  // ☖ ☖ ☗ ☗ ☗
+  case 9:
+    if (developerMode) Serial.print("Case 9: ☖ ☖ ☗ ☗ ☗");
+    rightStraight();
+    delay(straightMoveDelay);
+    forwardAll();
+    delay(straightStopDelay);
+    break;
+  // ☗ ☗ ☗ ☖ ☖
+  case 10:
+    if (developerMode) Serial.print("Case 10: ☗ ☗ ☗ ☖ ☖");
+    leftStraight();
+    delay(straightMoveDelay);
+    forwardAll();
+    delay(straightStopDelay);
+    break;
+  // ☗ ☗ ☗ ☗ ☗
+  case 11:
+    if (developerMode) Serial.print("Case 11: ☗ ☗ ☗ ☗ ☗");
+    stopAll();
+    break;
   }
-  if (abs(errorLevels[currentIndex]) > 4) {
-    if (errorLevels[currentIndex] > 0) {
-      motorControl('B', 'R', motorLVelocity, motorRVelocity);
-    } else if (errorLevels[currentIndex] < 0) {
-      motorControl('B', 'L', motorLVelocity, motorRVelocity);
-    }
-    delay(100);
-    motorControl('B', 'F', currentLVelocity, currentRVelocity);
-    delay(100);
-  } else {
-    motorControl('B', 'F', currentLVelocity, currentRVelocity); 
-  } 
+  if (developerMode) Serial.println("");
   delay(35);
   stopAll();
-  delay(125);
-
-  // if (developerMode) {
-  //   for (int i = 0; i < 5; i++) {
-  //     if (irReadings[i]) Serial.print("⬤ ");
-  //     else Serial.print("◯ ");
-  //   }
-  //   Serial.println("");
-  // }
+  delay(100);
 }
 
 uint16_t irSensorRead(int irNumber)
@@ -526,17 +531,13 @@ void updateCycle(int number) {
   else cycle += 1;
 }
 
-bool compareBooleanArray(bool arrayA[], bool arrayB[]) {
+bool compareIrCase(bool irReadings[], bool irCase[]) {
   for (int i = 0; i < 5; i++) {
-    if (arrayA[i] != arrayB[i]) {
+    if (irReadings[i] != irCase[i]) {
       return false;
     }
   }
   return true;
-}
-
-void copyBooleanArray(bool* src, bool* dst, int len) {
-    memcpy(dst, src, sizeof(bool) * len);
 }
 
 uint8_t checkIrCase() {
@@ -554,17 +555,17 @@ uint8_t checkIrCase() {
   bool straightRightCase[5] = {1, 1, 1, 0, 0};
   bool intersectionCase[5] =  {1, 1, 1, 1, 1};
 
-  if (compareBooleanArray(irReadings, gapCase))                 return 1;
-  else if (compareBooleanArray(irReadings, straightCase))       return 2;
-  else if (compareBooleanArray(irReadings, smoothRightCase))    return 3;
-  else if (compareBooleanArray(irReadings, smoothLeftCase))     return 4;
-  else if (compareBooleanArray(irReadings, rightCase))          return 5;
-  else if (compareBooleanArray(irReadings, leftCase))           return 6;
-  else if (compareBooleanArray(irReadings, farRightCase))       return 7;
-  else if (compareBooleanArray(irReadings, farLeftCase))        return 8;
-  else if (compareBooleanArray(irReadings, straightRightCase))  return 9;
-  else if (compareBooleanArray(irReadings, straightLeftCase))   return 10;
-  else if (compareBooleanArray(irReadings, intersectionCase))   return 11;
+  if (compareIrCase(irReadings, gapCase))                 return 1;
+  else if (compareIrCase(irReadings, straightCase))       return 2;
+  else if (compareIrCase(irReadings, smoothRightCase))    return 3;
+  else if (compareIrCase(irReadings, smoothLeftCase))     return 4;
+  else if (compareIrCase(irReadings, rightCase))          return 5;
+  else if (compareIrCase(irReadings, leftCase))           return 6;
+  else if (compareIrCase(irReadings, farRightCase))       return 7;
+  else if (compareIrCase(irReadings, farLeftCase))        return 8;
+  else if (compareIrCase(irReadings, straightRightCase))  return 9;
+  else if (compareIrCase(irReadings, straightLeftCase))   return 10;
+  else if (compareIrCase(irReadings, intersectionCase))   return 11;
 }
 
 void forwardAll()      { motorControl('B', 'F', motorLVelocity, motorRVelocity); }

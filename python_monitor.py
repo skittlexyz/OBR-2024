@@ -51,11 +51,13 @@ def main():
 
         while True:
             if ser.in_waiting > 0:
-                data = ser.readline().decode().strip()
-                if data:
-                    try:
+                try:
+                    data = ser.readline().decode().strip()
+                    if data:
                         print(highlight(json.dumps(json.loads(data), indent=4), lexers.JsonLexer(), formatters.TerminalFormatter()))
-                    except:
+                except:
+                    data = ser.readline().decode('utf-8', 'ignore').strip()
+                    if data:
                         print(data)
 
     except serial.SerialException as e:

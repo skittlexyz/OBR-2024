@@ -27,6 +27,14 @@ def select_com_port():
         except ValueError:
             print("Invalid input. Please enter a number.")
 
+def get_baud_rate():
+    while True:
+        try:
+            baud_rate = int(input("Enter baud rate (e.g., 9600, 115200): "))
+            return baud_rate
+        except ValueError:
+            print("Invalid input. Please enter a valid number.")
+
 def on_press(key, ser):
     try:
         key_char = key.char.upper()
@@ -59,9 +67,11 @@ def main():
     com_port = select_com_port()
     if not com_port:
         return
+    
+    baud_rate = get_baud_rate()
 
     try:
-        ser = serial.Serial(com_port, 115200, timeout=1)
+        ser = serial.Serial(com_port, baud_rate, timeout=1)
         time.sleep(2)  # Wait for the connection to be established
         print(f"Connected to {com_port}")
         print("Press W, A, S, or D to send commands to the Arduino.")
