@@ -2,7 +2,9 @@
 /* Made by Moisés Corrêa Gomes */
 
 /* Libraries section */
-#include "Adafruit_TCS34725softi2c.h"
+#include <Adafruit_TCS34725softi2c.h>
+#include <Adafruit_TCS34725.h>
+
 #include <MPU6050_light.h>
 #include "I2Cdev.h"
 #include "Wire.h"
@@ -10,16 +12,13 @@
 
 /* General configurations section */
 // Modes
-bool developerMode = true;
+bool developerMode = false;
 bool controllerMode = false;
-// Color sensors configuration
-#define colorVelocity TCS34725_INTEGRATIONTIME_2_4MS
-#define colorGain TCS34725_GAIN_60X
 // Gyroscope configuration
 bool isGyroscopeMountedUpsideDown = true;
 // Motor velocities
 // 200 - 212 | 175 - 205 | 165 - 200
-uint8_t motorLVelocity = 145 + 20;
+uint8_t motorLVelocity = 145 + 15;
 uint8_t motorRVelocity = 180 + 20;
 // Velocities used on smooth curves
 uint8_t adjustmentLVelocity = 120 + 20;
@@ -41,12 +40,12 @@ uint8_t irSensorPins[5] = {A3, A4, A5, A6, A7};
 // Led pins
 uint8_t ledPins[5] = {22, 24, 26, 28, 30};
 // Ultrassonic Pins
-uint8_t trigPins[3] = {48, 50, 52};
-uint8_t echoPins[3] = {49, 51, 53};
+uint8_t trigPins[3] = {49, 51, 52};
+uint8_t echoPins[3] = {48, 50, 53};
 // Grouped Stepper Motor pins {pwm min, a pin, b pin, ...}
 uint8_t motorPins[6] = {8, 9, 10, 13, 11, 12};
 // TCS34725 Pins {sda, scl, ...}
-uint8_t colorPins[4] = {44, 45, 46, 47};
+uint8_t colorPins[4] = {38, 39, 40, 41};
 // Line logic variables
 bool errorCombinations[9][5] = {
   {1,0,0,0,0},  
@@ -57,16 +56,17 @@ bool errorCombinations[9][5] = {
   {0,0,1,1,0},  
   {0,0,0,1,0},  
   {0,0,0,1,1},  
-  {0,0,0,0,1}  
+  {0,0,0,0,1}
 };
-int8_t errorLevels[9] = {-8,-4,-2,-1,0,1,2,4,8};
-uint8_t velocityStep = 15;
-int8_t lastError;
+float errorLevels[9] = {-8,-4,-2.5,-1,0,1,2.5,4,8};
+float velocityStep = 20;
+char lastSide;
+bool lastErrorCombination[5] = {0, 0, 0, 0, 0};
 
 /* Objects declaration*/
 // Color sensors (TCS34725)
-Adafruit_TCS34725softi2c leftColor = Adafruit_TCS34725softi2c(colorVelocity, colorGain, colorPins[0], colorPins[1]);
-Adafruit_TCS34725softi2c rightColor = Adafruit_TCS34725softi2c(colorVelocity, colorGain, colorPins[2], colorPins[3]);
+Adafruit_TCS34725softi2c leftColor  = Adafruit_TCS34725softi2c(TCS34725_INTEGRATIONTIME_2_4MS, TCS34725_GAIN_60X, colorPins[0], colorPins[1]);
+Adafruit_TCS34725softi2c rightColor = Adafruit_TCS34725softi2c(TCS34725_INTEGRATIONTIME_2_4MS, TCS34725_GAIN_60X, colorPins[2], colorPins[3]);
 // Gyroscope (MPU6050)
 MPU6050 mpu(Wire);
 // Sensor values
@@ -124,21 +124,46 @@ void rightAdjust();
 void leftFastAdjust();
 void rightFastAdjust();
 
+int curva = 0;
+int interseccao = 0;
+int gap = 0;
+int modo = 0;
+
 /* Main code section */
 void setup()
 {
   // Waits for serial monitor to be available
   if (developerMode || controllerMode)
   {
-    Serial.begin(9600);
+    Serial.begin(115200);
     while (!Serial)
       ;
   }
   pinsSetup();
-  //colorSetup(); 
-  //mpuSetup();
-  // calibrateMpu(1, 500);
+  colorSetup();
+  mpuSetup();
+  calibrateMpu(1, 250);
 }
+
+/*
+
+  - curva a esquerda 1
+  - intersecção a frente 1
+  - intersecção a esquerda 2
+  curva a esquerda 2
+  intersecção volta atras 3
+  curva a direita 3
+  curva a direita 4
+  interseccao a esquerda 4
+  curva a direita 5
+  gap 1
+  gap 2
+  redutor fodase
+  gap parar 3
+
+  segue linha normal
+
+*/
 
 void loop()
 {
@@ -152,30 +177,137 @@ void loop()
   {
     currentIndex = i;
     if (compareBooleanArray(irReadings, errorCombinations[i])) {
-      if (developerMode) Serial.print("found case! ");
+      // if (developerMode) Serial.print("found case! "
       copyBooleanArray(errorCombinations[i], currentErrorCombination, 5);
-      for (uint8_t j = 0; j < 5; j++)
-      {
-        if (developerMode) Serial.print(errorCombinations[i][j]);
-        if (developerMode) Serial.print(" ");
-      }
-  
+      copyBooleanArray(errorCombinations[i], lastErrorCombination, 5);
+ 
+      if (errorLevels[i] > 0) lastSide = 'R';
+      else if (errorLevels[i] < 0) lastSide = 'L';
+      else lastSide = 'N';
+ 
+      // for (uint8_t j = 0; j < 5; j++)
+      // {
+      //   if (developerMode) Serial.print(errorCombinations[i][j]);
+      //   if (developerMode) Serial.print(" ");
+      // }
+ 
       currentLVelocity = motorLVelocity + (errorLevels[i] * (velocityStep * 1.5));
-      currentRVelocity = motorRVelocity - (errorLevels[i] * velocityStep);  
+      currentRVelocity = motorRVelocity - (errorLevels[i] * (velocityStep* 1.5));
       if (currentLVelocity > 255) currentLVelocity = 255;
       if (currentRVelocity > 255) currentRVelocity = 255; 
       if (currentLVelocity < 0) currentLVelocity = 0;
       if (currentRVelocity < 0) currentRVelocity = 0; 
-      if (developerMode) Serial.print("velocity L: ");
-      if (developerMode) Serial.print(currentLVelocity);
-      if (developerMode) Serial.print(" velocity R: ");
-      if (developerMode) Serial.print(currentRVelocity);
-      if (developerMode) Serial.println("");  
+ 
+      // if (developerMode) Serial.print("velocity L: ");
+      // if (developerMode) Serial.print(currentLVelocity);
+      // if (developerMode) Serial.print(" velocity R: ");
+      // if (developerMode) Serial.print(currentRVelocity);
+      // if (developerMode) Serial.println("");  
+ 
       break;
     }
   }
-  if (abs(errorLevels[currentIndex]) > 4) {
-    if (errorLevels[currentIndex] > 0) {
+  if (gap == 3 && irReadings[0] == false && irReadings[1] == false && irReadings[2] == false && irReadings[3] == false && irReadings[4] == false) {
+    stopAll();
+  }
+  else if (gap == 2) {
+    do {
+      motorControl('B', 'F', motorLVelocity, motorRVelocity);
+    } while (irReadings[0] == false && irReadings[1] == false && irReadings[2] == false && irReadings[3] == false && irReadings[4] == false);
+    
+    stopAll();
+    gap++;
+    interseccao = 999;
+    curva = 999; 
+    delay(1 * 1000 * 30);
+  }
+  else if (interseccao == 1) {/
+    curva++;
+    if (developerMode) Serial.println("CURVA RETA A ESQUERDA"); //curva reta a esquerda
+    float currentAngle = mpuSensorRead('Z');
+    do {
+      motorControl('B', 'L', motorLVelocity, motorRVelocity);
+      Serial.println(abs(currentAngle - mpuSensorRead('Z')));
+    } while (abs(currentAngle - mpuSensorRead('Z')) < 85);
+    motorControl('B', 'F', motorLVelocity, motorRVelocity);
+    delay(150);
+    interseccao++;
+  }
+  else if (interseccao == 2) {
+    curva++;
+    if (developerMode) Serial.println("CURVA RETA A ESQUERDA"); //curva reta a esquerda
+    float currentAngle = mpuSensorRead('Z');
+    do {
+      motorControl('B', 'L', motorLVelocity, motorRVelocity);
+      Serial.println(abs(currentAngle - mpuSensorRead('Z')));
+    } while (abs(currentAngle - mpuSensorRead('Z')) < 85);
+
+    if (developerMode) Serial.println("CURVA RETA A ESQUERDA"); //curva reta a esquerda
+    currentAngle = mpuSensorRead('Z');
+    do {
+      motorControl('B', 'L', motorLVelocity, motorRVelocity);
+      Serial.println(abs(currentAngle - mpuSensorRead('Z')));
+    } while (abs(currentAngle - mpuSensorRead('Z')) < 85);
+
+    motorControl('B', 'F', motorLVelocity, motorRVelocity);
+    delay(150);
+    interseccao++;
+  } else if (interseccao == 3){
+    if (developerMode) Serial.println("CURVA RETA A ESQUERDA"); //curva reta a esquerda
+    float currentAngle = mpuSensorRead('Z');
+    do {
+      motorControl('B', 'L', motorLVelocity, motorRVelocity);
+      Serial.println(abs(currentAngle - mpuSensorRead('Z')));
+    } while (abs(currentAngle - mpuSensorRead('Z')) < 85);
+  }
+  else if (irReadings[0] == false && irReadings[1] == false && irReadings[2] == false && irReadings[3] == false && irReadings[4] == false) {
+    motorControl('B', 'F', adjustmentLVelocity, adjustmentRVelocity); //gap
+    delay(150);
+    gap++;
+  }
+  else if (irReadings[0] == true && irReadings[1] == true && irReadings[2] == true && irReadings[3] == true && irReadings[4] == true) {
+    //checar cor no futuro
+    motorControl('B', 'F', adjustmentLVelocity, adjustmentRVelocity); // intersecção
+    interseccao++;
+    delay(150);
+  }
+  else if (irReadings[0] == false && irReadings[1] == false && irReadings[2] == true && irReadings[3] == true && irReadings[4] == true) {
+    //checar cor no futuro
+    if (developerMode) Serial.println("CURVA RETA A DIREITA"); //curva reta a direita
+    curva++;
+    float currentAngle = mpuSensorRead('Z');
+    do {
+      motorControl('B', 'R', motorLVelocity, motorRVelocity);
+      Serial.println(abs(currentAngle - mpuSensorRead('Z')));
+    } while (abs(currentAngle - mpuSensorRead('Z')) < 85);
+    motorControl('B', 'F', motorLVelocity, motorRVelocity);
+    delay(150);
+  }
+  else if (irReadings[0] == true && irReadings[1] == true && irReadings[2] == true && irReadings[3] == false && irReadings[4] == false) {
+    //checar cor no futuro
+    if (developerMode) Serial.println("CURVA RETA A ESQUERDA"); //curva reta a esquerda
+    curva++;
+    float currentAngle = mpuSensorRead('Z');
+    do {
+      motorControl('B', 'L', motorLVelocity, motorRVelocity);
+      Serial.println(abs(currentAngle - mpuSensorRead('Z')));
+    } while (abs(currentAngle - mpuSensorRead('Z')) < 85);
+    motorControl('B', 'F', motorLVelocity, motorRVelocity);
+    delay(150);
+  }
+  else if (abs(errorLevels[currentIndex]) > 4) {
+    if (lastErrorCombination[2] == false && lastErrorCombination[3] == false && lastErrorCombination[4] == true) {
+      motorControl('B', 'R', motorLVelocity, motorRVelocity);
+      delay(300);
+      motorControl('B', 'F', motorLVelocity, motorRVelocity);
+      delay(150);
+    } else if (lastErrorCombination[0] == true && lastErrorCombination[1] == false && lastErrorCombination[2] == false) {
+      motorControl('B', 'L', motorLVelocity, motorRVelocity);
+      delay(300);
+      motorControl('B', 'F', motorLVelocity, motorRVelocity);
+      delay(100);
+    }
+    else if (errorLevels[currentIndex] > 0) {
       motorControl('B', 'R', motorLVelocity, motorRVelocity);
     } else if (errorLevels[currentIndex] < 0) {
       motorControl('B', 'L', motorLVelocity, motorRVelocity);
@@ -185,7 +317,7 @@ void loop()
     delay(100);
   } else {
     motorControl('B', 'F', currentLVelocity, currentRVelocity); 
-  } 
+  }
   delay(35);
   stopAll();
   delay(125);
@@ -196,7 +328,10 @@ void loop()
   //     else Serial.print("◯ ");
   //   }
   //   Serial.println("");
+  //   Serial.print("Ângulo de Rotação: "); Serial.println(mpuSensorRead('Z'));
   // }
+
+  // sensorsDebug();
 }
 
 uint16_t irSensorRead(int irNumber)
@@ -414,7 +549,7 @@ bool colorSetup()
   {
     if (developerMode) Serial.println(F("Right TCS34725 connection failed"));
   }
-  if (leftColorStatus || rightColorStatus)
+  if (leftColorStatus && rightColorStatus)
     return true;
   else
     return false;
@@ -476,7 +611,7 @@ void sensorsDebug()
     sensorData["rightColorB"] = (uint16_t) colorSensorRead('R', 'B');
   
     sensorData["leftUltra"] = (float) ultraSensorRead(1);
-    // sensorData["centerUltra"] = (float) ultraSensorRead(2);
+    sensorData["centerUltra"] = (float) ultraSensorRead(2);
     sensorData["rightUltra"] = (float) ultraSensorRead(3);
   
     sensorData["ir1"] = (int) irSensorRead(1);

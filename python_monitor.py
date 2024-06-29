@@ -1,73 +1,67 @@
 import serial
 import serial.tools.list_ports
-import time
-import json
-from pygments import highlight, lexers, formatters
 
 def list_serial_ports():
     ports = serial.tools.list_ports.comports()
     return [port.device for port in ports]
 
-def select_com_port():
-    ports = list_serial_ports()
-    if not ports:
-        print("No serial ports found!")
-        return None
-
+def select_serial_port(ports):
     print("Available serial ports:")
     for i, port in enumerate(ports):
-        print(f"{i + 1}: {port}")
-
+        print(f"{i}: {port}")
+    
     while True:
         try:
-            choice = int(input("Select the COM port by number: ")) - 1
+            choice = int(input("Select a serial port by number: "))
             if 0 <= choice < len(ports):
                 return ports[choice]
             else:
-                print("Invalid selection. Try again.")
+                print("Invalid choice. Try again.")
         except ValueError:
-            print("Invalid input. Please enter a number.")
+            print("Invalid input. Enter a number.")
 
-def get_baud_rate():
+def select_baud_rate():
+    baud_rates = [9600, 14400, 19200, 38400, 57600, 115200]
+    print("Available baud rates:")
+    for i, rate in enumerate(baud_rates):
+        print(f"{i}: {rate}")
+    
     while True:
         try:
-            baud_rate = int(input("Enter baud rate (e.g., 9600, 115200): "))
-            return baud_rate
+            choice = int(input("Select a baud rate by number: "))
+            if 0 <= choice < len(baud_rates):
+                return baud_rates[choice]
+            else:
+                print("Invalid choice. Try again.")
         except ValueError:
-            print("Invalid input. Please enter a valid number.")
+            print("Invalid input. Enter a number.")
 
 def main():
-    com_port = select_com_port()
-    if not com_port:
+    ports = list_serial_ports()
+    if not ports:
+        print("No serial ports found.")
         return
-
-    baud_rate = get_baud_rate()
+    
+    selected_port = select_serial_port(ports)
+    selected_baud_rate = select_baud_rate()
 
     try:
-        ser = serial.Serial(com_port, baud_rate, timeout=1)
-        time.sleep(2)  # Wait for the connection to be established
-        print(f"Connected to {com_port} at {baud_rate} baud rate.")
-        print("Reading data from the serial port. Press 'Ctrl+C' to quit.")
+        ser = serial.Serial(selected_port, selected_baud_rate, timeout=1)
+        print(f"Connected to {selected_port} at {selected_baud_rate} baud rate")
 
         while True:
             if ser.in_waiting > 0:
-                try:
-                    data = ser.readline().decode().strip()
-                    if data:
-                        print(highlight(json.dumps(json.loads(data), indent=4), lexers.JsonLexer(), formatters.TerminalFormatter()))
-                except:
-                    data = ser.readline().decode('utf-8', 'ignore').strip()
-                    if data:
-                        print(data)
+                line = ser.readline().decode('utf-8').rstrip()
+                print(f"@> {line}")
 
     except serial.SerialException as e:
-        print(f"Error: {e}")
+        print(f"Error opening serial port: {e}")
     except KeyboardInterrupt:
-        print("\nExiting program.")
+        print("Program interrupted by user")
     finally:
-        if 'ser' in locals() and ser.is_open:
+        if ser.is_open:
             ser.close()
-            print("Serial port closed.")
+            print("Serial port closed")
 
 if __name__ == "__main__":
     main()
